@@ -108,9 +108,13 @@ pub enum DomainOrAddress {
 
 impl DomainOrAddress {
     pub fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        write!(writer, "{}", self.to_string())
+    }
+
+    pub fn to_string(&self) -> String {
         match self {
-            DomainOrAddress::Domain(domain) => write!(writer, "{}", domain),
-            DomainOrAddress::Address(address) => write!(writer, "[{}]", address),
+            DomainOrAddress::Domain(domain) => format!("{}", domain),
+            DomainOrAddress::Address(address) => format!("[{}]", address),
         }
     }
 }
