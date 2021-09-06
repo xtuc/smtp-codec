@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 
 #[cfg(feature = "serdex")]
@@ -92,6 +93,11 @@ pub enum Command {
     AuthLogin(Option<String>),
     // AUTH PLAIN
     AuthPlain(Option<String>),
+    /// This command is part of the XCLIENT extension to SMTP. It includes
+    /// information about the SMTP client.
+    Xclient {
+        attributes: HashMap<String, String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +147,7 @@ impl Command {
             Command::AuthLogin(_) => "AUTHLOGIN",
             // TODO: SMTP AUTH PLAIN
             Command::AuthPlain(_) => "AUTHPLAIN",
+            Command::Xclient { .. } => "XCLIENT",
         }
     }
 
@@ -236,6 +243,14 @@ impl Command {
             AuthPlain(Some(data)) => {
                 writer.write_all(b"AUTH PLAIN ")?;
                 writer.write_all(data.as_bytes())?;
+            }
+            Xclient { attributes } => {
+                writer.write_all(b"XCLIENT ")?;
+                for (key, value) in attributes {
+                    writer.write_all(key.as_bytes())?;
+                    writer.write_all(b"=")?;
+                    writer.write_all(value.as_bytes())?;
+                }
             }
         }
 

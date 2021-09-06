@@ -3,10 +3,11 @@ use nom::{
     branch::alt,
     bytes::streaming::{tag, tag_no_case, take_while, take_while1, take_while_m_n},
     combinator::{map, map_res, opt, recognize, value},
-    multi::separated_list1,
-    sequence::{delimited, preceded, tuple},
+    multi::{fold_many1, separated_list1},
+    sequence::{delimited, preceded, terminated, tuple},
     IResult,
 };
+use std::collections::HashMap;
 
 use crate::{
     parse::{address::address_literal, base64, Atom, Domain, Quoted_string, String},
@@ -19,6 +20,7 @@ pub fn command(input: &[u8]) -> IResult<&[u8], Command> {
         starttls,   // Extensions
         auth_login, // https://interoperability.blob.core.windows.net/files/MS-XLOGIN/[MS-XLOGIN].pdf
         auth_plain, // RFC 4616
+        xclient,
     ))(input)
 }
 
@@ -351,10 +353,70 @@ pub fn Dot_string(input: &[u8]) -> IResult<&[u8], &str> {
 //    Atom(input)
 //}
 
+///  xtext = *( xchar / hexchar )
+///
+///  xchar = any ASCII CHAR between "!" (33) and "~" (126) inclusive,
+///        except for "+" and "=".
+///
+/// ; "hexchar"s are intended to encode octets that cannot appear
+/// ; as ASCII characters within an esmtp-value.
+///
+///  hexchar = ASCII "+" immediately followed by two upper case
+///      hexadecimal digits
+///
+/// When encoding an octet sequence as xtext:
+///
+/// + Any ASCII CHAR between "!" and "~" inclusive, except for "+" and "=",
+///   MAY be encoded as itself.  (A CHAR in this range MAY instead be
+///   encoded as a "hexchar", at the implementor's discretion.)
+///
+/// + ASCII CHARs that fall outside the range above must be encoded as
+/// "hexchar".
+pub fn xtext(input: &[u8]) -> IResult<&[u8], &str> {
+    fn is_char(byte: u8) -> bool {
+        let res = byte != '+' as u8 && byte != '=' as u8 && matches!(byte, 33..=126);
+        res
+    }
+    // FIXME: handle the hexchar encoding
+    map_res(take_while(is_char), std::str::from_utf8)(input)
+}
+
+/// xclient-command = XCLIENT 1*( SP attribute-name"="attribute-value )
+/// attribute-name = ( NAME | ADDR | PORT | PROTO | HELO | LOGIN | DESTADDR | DESTPORT )
+/// attribute-value = xtext
+pub fn xclient(input: &[u8]) -> IResult<&[u8], Command> {
+    let attribute_name = map_res(
+        alt((
+            tag(b"NAME"),
+            tag(b"ADDR"),
+            tag(b"PORT"),
+            tag(b"PROTO"),
+            tag(b"HELO"),
+            tag(b"LOGIN"),
+            tag(b"DESTADDR"),
+            tag(b"DESTPORT"),
+        )),
+        std::str::from_utf8,
+    );
+    let attributes = fold_many1(
+        preceded(SP, tuple((attribute_name, tag(b"="), xtext))),
+        HashMap::new(),
+        |mut acc: HashMap<String, String>, (key, _, value)| {
+            acc.insert(key.to_string(), value.to_string());
+            acc
+        },
+    );
+    map(
+        terminated(preceded(tag_no_case(b"XCLIENT"), attributes), CRLF),
+        |attributes| Command::Xclient { attributes },
+    )(input)
+}
+
 #[cfg(test)]
 mod test {
-    use super::{ehlo, helo, mail};
+    use super::{command, ehlo, helo, mail};
     use crate::types::{Command, DomainOrAddress};
+    use std::collections::HashMap;
 
     #[test]
     fn test_ehlo() {
@@ -390,6 +452,17 @@ mod test {
                 parameters: Vec::default(),
             }
         );
+        assert_eq!(rem, b"???");
+    }
+
+    #[test]
+    fn test_xclient() {
+        let (rem, parsed) = command(b"XCLIENT NAME=name.org ADDR=1.1.1.1\r\n???").unwrap();
+
+        let mut attributes = HashMap::new();
+        attributes.insert("NAME".to_string(), "name.org".to_string());
+        attributes.insert("ADDR".to_string(), "1.1.1.1".to_string());
+        assert_eq!(parsed, Command::Xclient { attributes });
         assert_eq!(rem, b"???");
     }
 }
