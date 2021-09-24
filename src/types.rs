@@ -98,6 +98,8 @@ pub enum Command {
     Xclient {
         attributes: HashMap<String, String>,
     },
+    /// Custom command that queries the status of the service
+    Status,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +154,7 @@ impl Command {
             // TODO: SMTP AUTH PLAIN
             Command::AuthPlain(_) => "AUTHPLAIN",
             Command::Xclient { .. } => "XCLIENT",
+            Command::Status => "STATUS",
         }
     }
 
@@ -256,6 +259,7 @@ impl Command {
                     writer.write_all(value.as_bytes())?;
                 }
             }
+            Status => writer.write_all(b"STATUS")?,
         }
 
         write!(writer, "\r\n")

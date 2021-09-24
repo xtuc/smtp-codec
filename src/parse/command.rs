@@ -20,7 +20,8 @@ pub fn command(input: &[u8]) -> IResult<&[u8], Command> {
         starttls,   // Extensions
         auth_login, // https://interoperability.blob.core.windows.net/files/MS-XLOGIN/[MS-XLOGIN].pdf
         auth_plain, // RFC 4616
-        xclient,
+        xclient,    // Extensions
+        status,     // custom
     ))(input)
 }
 
@@ -410,6 +411,10 @@ pub fn xclient(input: &[u8]) -> IResult<&[u8], Command> {
         terminated(preceded(tag_no_case(b"XCLIENT"), attributes), CRLF),
         |attributes| Command::Xclient { attributes },
     )(input)
+}
+
+pub fn status(input: &[u8]) -> IResult<&[u8], Command> {
+    value(Command::Status, tuple((tag_no_case(b"STATUS"), CRLF)))(input)
 }
 
 #[cfg(test)]
